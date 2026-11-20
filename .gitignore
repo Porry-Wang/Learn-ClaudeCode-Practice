@@ -1,0 +1,14 @@
+# ---- JetBrains / IDE 本地配置（含 .idea/ 下的 *.xml、*.iml）----
+.idea/
+.vscode/
+.DS_Store
+
+# 如果只想忽略 IDE 里的 xml 而保留其它 .idea 配置，可改用下面两行：
+# .idea/**/*.xml
+# .idea/workspace.xml
+
+# ---- 如需忽略项目内任意位置的 xml 文件，取消下一行注释 ----
+# *.xml
+# 常用反向例外写法：
+# !pom.xml
+# !config/app.example.xml
