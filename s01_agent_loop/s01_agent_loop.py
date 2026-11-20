@@ -1,5 +1,5 @@
 """
-Practice: agent-loop
+Practice-原文抄写: agent-loop
 Paradigm-范式：REACT
     while True:
         response = LLM(messages, tools)
@@ -96,7 +96,7 @@ def agent_loop(messages: list):
         messages.append({"role": "user", "content": results})
 
 # -- Entry point --
-if __name__ == "main":
+if __name__ == "__main__":
     print("agent_loop")
     print("Enter a question, press Enter to send. Type q to quit.\n")
 

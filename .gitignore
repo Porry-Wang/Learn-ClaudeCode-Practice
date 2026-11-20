@@ -3,6 +3,11 @@
 .vscode/
 .DS_Store
 
+# ---- 密钥 / 本地环境变量（禁止提交）----
+.env
+.env.*
+!.env.example
+
 # 如果只想忽略 IDE 里的 xml 而保留其它 .idea 配置，可改用下面两行：
 # .idea/**/*.xml
 # .idea/workspace.xml
