@@ -23,7 +23,7 @@ load_dotenv(override=True)
 if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
-WORKDIR = Path.cwd()
+WORKDIR = Path(__file__).resolve().parents[1]
 client = OpenAI(
     api_key=os.environ["OPENAI_API_KEY"],
     base_url=os.environ["OPENAI_BASE_URL"],
@@ -38,11 +38,10 @@ ENVIRONMENT_PROMPT = (
 )
 
 SYSTEM = (
-    f"You are a coding agent at {os.getcwd()}. Environment: {ENVIRONMENT_PROMPT}. "
-    "Use tools to solve tasks. Act, don't explain."
-)
+    f"You are a coding agent at {WORKDIR}. Environment: {ENVIRONMENT_PROMPT}. "
+    "All tool paths are relative to this root. Act, don't explain."
 
-# -- From s01 (unchanged) --
+)
 
 
 def run_bash(command: str) -> str:
@@ -54,7 +53,7 @@ def run_bash(command: str) -> str:
         r = subprocess.run(
             command,
             shell=True,
-            cwd=os.getcwd(),
+            cwd=WORKDIR,
             capture_output=True,
             text=True,
             errors="replace",
