@@ -1,0 +1,142 @@
+「日志解析v2」
+/opt/homebrew/bin/uv run /Users/porry/PycharmProjects/AIAgent/Learn-Claude Code-Practice/.venv/bin/python /Users/porry/PycharmProjects/AIAgent/Learn-ClaudeCode-Practice/s02_tool_use/tool_use_open_ai.py
+s02: Tool Use - four tools added to s01
+Enter a question, press Enter to send. Type q to quit.
+
+s02 >> Read the file README.md and tell me what this project is about
+「turn 1」-----------------
+
+-------call: ChatCompletionMessageFunctionToolCall(id='call_00_ET_senUoHhA7456UGgql0kM0136', function=Function(arguments='{"path": "README.md"}', name='read_file'), type='function') ----------
+-------tool_calls_args:----------
+$ {'path': 'README.md'}
+
+-------tool_calls_result:----------
+ Error: [Errno 2] No such file or directory: '/Users/porry/PycharmProjects/AIAgent/Learn-ClaudeCode-Practice/s02_tool_use/README.md'
+
+「turn 2」-----------------
+
+-------call: ChatCompletionMessageFunctionToolCall(id='call_00_so6PlYJlpLwZs8MbUHZ53856', function=Function(arguments='{"command": "ls -la; echo \\"---\\"; find . -maxdepth 3 -iname \\"*readme*\\" 2>/dev/null"}', name='bash'), type='function') ----------
+-------tool_calls_args:----------
+$ {'command': 'ls -la; echo "---"; find . -maxdepth 3 -iname "*readme*" 2>/dev/null'}
+
+-------tool_calls_result:----------
+ total 40
+drwxr-xr-x@  4 porry  staff   128 Nov 26 17:16 .
+drwxr-xr-x@ 11 porry  staff   352 Nov 26 14:10 ..
+-rw-r--r--@  1 porry  staff  7139 Nov 26 16:00 tool_use.py
+-rw-r--r--@  1 porry  staff  8677
+
+「turn 3」-----------------
+
+-------call: ChatCompletionMessageFunctionToolCall(id='call_00_PqB79ZBbkKRQRiZDK1Sq2329', function=Function(arguments='{"command": "cd ..; ls -la; find . -maxdepth 2 -iname \\"*readme*\\" 2>/dev/null"}', name='bash'), type='function') ----------
+-------tool_calls_args:----------
+$ {'command': 'cd ..; ls -la; find . -maxdepth 2 -iname "*readme*" 2>/dev/null'}
+
+-------tool_calls_result:----------
+ total 200
+drwxr-xr-x@ 11 porry  staff    352 Nov 26 14:10 .
+drwxr-xr-x@  8 porry  staff    256 Nov 20 16:10 ..
+drwxr-xr-x@ 12 porry  staff    384 Nov 26 16:01 .git
+-rw-r--r--@  1 porry  staff    479 N
+
+「turn 4」-----------------
+
+-------call: ChatCompletionMessageFunctionToolCall(id='call_00_ET_19Mo0od50oJTnPzL0SXb9258', function=Function(arguments='{"command": "cd ..; cat README.md; echo \\"=== pyproject ===\\"; cat pyproject.toml; echo \\"=== s01 ===\\"; ls s01_agent_loop; echo \\"=== s02 ===\\"; ls s02_tool_use"}', name='bash'), type='function') ----------
+-------tool_calls_args:----------
+$ {'command': 'cd ..; cat README.md; echo "=== pyproject ==="; cat pyproject.toml; echo "=== s01 ==="; ls s01_agent_loop; echo "=== s02 ==="; ls s02_tool_use'}
+
+-------tool_calls_result:----------
+ Learn Claude Code 学习笔记=== pyproject ===
+[project]
+name = "learn-claude-code-practice"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=2.11.0",
+    "openai>=3.57.0",
+    "
+
+「turn 5」-----------------
+
+-------call: ChatCompletionMessageFunctionToolCall(id='call_00_Dj0Ww6z5mX3XlfZT4ItY7920', function=Function(arguments='{"command": "cat tool_use.py; echo \\"=========== OPENAI VERSION ===========\\"; cat tool_use_open_ai.py"}', name='bash'), type='function') ----------
+-------tool_calls_args:----------
+$ {'command': 'cat tool_use.py; echo "=========== OPENAI VERSION ==========="; cat tool_use_open_ai.py'}
+
+-------tool_calls_result:----------
+ """
+Practice: tool-use
+adds four tools and a dispatch map
+    bash
+    read_file
+    write_file
+    edit_file
+    glob
+TOOL_HANDLERS instead of a hard-coded run_bash call
+safe_path to keep file tools
+
+「turn 6」-----------------
+
+-------final----------
+
+ There's no `README.md` in `s02_tool_use/` — the only README lives one level up at the repo root, and it's just one line: **"Learn Claude Code 学习笔记"** (study notes for learning Claude Code).
+
+So I read the actual code in this directory to explain it:
+
+## What this project is
+
+A hands-on **build-your-own-coding-agent** tutorial series, modeled on how Claude Code works internally. Each directory (`s01_agent_loop`, `s02_tool_use`, …) is one incremental lesson, and each lesson ships two parallel implementations of the same agent — one on the **Anthropic SDK** (`tool_use.py`) and one on the **OpenAI SDK** (`tool_use_open_ai.py`) — so you can see how the same concepts map onto both APIs.
+
+## This directory: `s02_tool_use`
+
+The lesson is **tool use**: taking the s01 agent loop and giving the model a real toolbox.
+
+**1. The agent loop** (`agent_loop`)
+- Send the conversation + tool definitions to the model.
+- If the response contains `tool_use` blocks, execute them, append the results back as the next turn, and loop again.
+- If there are no tool calls, the model is done — return.
+
+**2. Five tools instead of s01's one**
+| Tool | Purpose |
+|---|---|
+| `bash` | run a shell command (with a dangerous-command blocklist, 120s timeout, 50k char output cap) |
+| `read_file` | read a file, optionally truncating to `limit` lines |
+| `write_file` | write content, creating parent dirs |
+| `edit_file` | exact-text single replacement |
+| `glob` | pattern match, `**` recursive |
+
+**3. The key s02 idea — a dispatch map**
+Instead of s01's hard-coded `run_bash(block.input["command"])`, there's `TOOL_HANDLERS = {"bash": run_bash, ...}` and dispatch becomes `TOOL_HANDLERS[block.name](**block.input)`. Adding a tool is now just adding a dict entry.
+
+**4. Sandboxing via `safe_path`**
+Every file tool resolves the path and checks `is_relative_to(WORKDIR)`, so the model can't read or write outside the workspace.
+
+**5. The API difference the two files illustrate**
+- *Anthropic*: `system` is a top-level parameter, tool inputs arrive as ready-made dicts, results go back as `tool_result` blocks inside a user message.
+- *OpenAI*: `system` is the first message in `messages`, `tool_calls` must be echoed back verbatim, arguments arrive as a **JSON string** needing `json.loads`, and results go back as separate `role: "tool"` messages keyed by `tool_call_id`. It also caps the loop at 50 turns.
+
+**6. Interactive REPL** — a colored `s02 >>` prompt, `q`/`exit` to quit, ANSI escapes wrapped in `\001`/`\002` so readline doesn't miscount line width.
+
+One thing worth flagging: `run_glob` computes a sandboxed, sorted `matches` set — then ignores it and returns `"\n".join(WORKDIR.glob(pattern))` instead, which is unsandboxed and not recursive. Looks like leftover/debug code in both files.
+
+------------------
+s02 >>
+问题总结： WORKDIR = Path.cwd() 把沙箱根定成了启动目录（s02_tool_use/），所以 read_file("README.md") 必然找不到文件，模型只好退回 bash 一层层往上爬，6 轮才结束。
+
+「日志解析v1」
+s02 >> Read the file README.md and tell me what this project is about
+「turn 1」-----------------
+
+Traceback (most recent call last):
+  File "/Users/porry/PycharmProjects/AIAgent/Learn-ClaudeCode-Practice/s02_tool_use/tool_use_open_ai.py", line 278, in <module>
+    agent_loop(history)
+  File "/Users/porry/PycharmProjects/AIAgent/Learn-ClaudeCode-Practice/s02_tool_use/tool_use_open_ai.py", line 243, in agent_loop
+    handler = TOOL_HANDLERS.get(call.name)
+                                ^^^^^^^^^
+  File "/Users/porry/PycharmProjects/AIAgent/Learn-Claude Code-Practice/.venv/lib/python3.11/site-packages/pydantic/main.py", line 1110, in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+AttributeError: 'ChatCompletionMessageFunctionToolCall' object has no attribute 'name'
+-------call: ChatCompletionMessageFunctionToolCall(id='call_00_ET_zSAI4UL47jfPzBN6CD916750', function=Function(arguments='{"command": "ls -la /Users/porry/PycharmProjects/AIAgent/Learn-ClaudeCode-Practice/s02_tool_use"}', name='bash'), type='function') ----------
+-------tool_calls_args:----------
+$ {'command': 'ls -la /Users/porry/PycharmProjects/AIAgent/Learn-ClaudeCode-Practice/s02_tool_use'}
+
+问题总结：name 在 function 子对象里，即 call.function.name；参数在 call.function.arguments（JSON 字符串，不是 dict）。

@@ -10,12 +10,13 @@ TOOL_HANDLERS instead of a hard-coded run_bash call
 safe_path to keep file tools inside the workspace
 """
 
+import json
 import os
 import subprocess
 from pathlib import Path
 
-from anthropic import Anthropic
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv(override=True)
 
@@ -23,8 +24,11 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+client = OpenAI(
+    api_key=os.environ["OPENAI_API_KEY"],
+    base_url=os.environ["OPENAI_BASE_URL"],
+)
+MODEL = os.getenv("MODEL_ID", "deepseek-v4.1-flash")
 
 ENVIRONMENT_PROMPT = (
     "Windows: the bash tool runs through cmd.exe; use cmd.exe syntax, not Unix "
@@ -35,7 +39,7 @@ ENVIRONMENT_PROMPT = (
 
 SYSTEM = (
     f"You are a coding agent at {os.getcwd()}. Environment: {ENVIRONMENT_PROMPT}. "
-    "Use bash to solve tasks. Act, don't explain."
+    "Use tools to solve tasks. Act, don't explain."
 )
 
 # -- From s01 (unchanged) --
@@ -127,52 +131,73 @@ def run_glob(pattern: str) -> str:
 # -- New in s02: tool definitions (one tool in s01, five in s02) --
 TOOLS = [
     {
-        "name": "bash",
-        "description": "Run a shell command.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"command": {"type": "string"}},
-            "required": ["command"],
-        },
-    },
-    {
-        "name": "read_file",
-        "description": "Read file contents.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}},
-            "required": ["path"],
-        },
-    },
-    {
-        "name": "write_file",
-        "description": "Write content to a file.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-            "required": ["path", "content"],
-        },
-    },
-    {
-        "name": "edit_file",
-        "description": "Replace exact text in a file once.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "old_text": {"type": "string"},
-                "new_text": {"type": "string"},
+        "type": "function",
+        "function": {
+            "name": "bash",
+            "description": "Run a shell command",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
             },
-            "required": ["path", "old_text", "new_text"],
         },
     },
     {
-        "name": "glob",
-        "description": "Find files matching a glob pattern; ** matches recursively.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"pattern": {"type": "string"}},
-            "required": ["pattern"],
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read file contents",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write content to a file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Replace exact text in a file once.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old_text": {"type": "string"},
+                    "new_text": {"type": "string"},
+                },
+                "required": ["path", "old_text", "new_text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "glob",
+            "description": "Find files matching a glob pattern; ** matches recursively.",
+            "parameters": {
+                "type": "object",
+                "properties": {"pattern": {"type": "string"}},
+                "required": ["pattern"],
+            },
         },
     },
 ]
@@ -191,29 +216,46 @@ TOOL_HANDLERS = {
 
 
 def agent_loop(messages: list):
-    while True:
-        response = client.messages.create(
+    for turn in range(1, 50):
+        print(f"「turn {turn}」-----------------\n")
+        # system 在 OpenAI 里是 messages 的第一条消息，不是顶层参数
+        response = client.chat.completions.create(
             model=MODEL,
-            system=SYSTEM,
-            messages=messages,
+            messages=[{"role": "system", "content": SYSTEM}, *messages],
             tools=TOOLS,
-            max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        msg = response.choices[0].message
 
-        tool_calls = [block for block in response.content if block.type == "tool_use"]
+        # Append assistant turn (tool_calls 必须原样带回，否则下一轮 400)
+        messages.append(msg.model_dump(exclude_none=True))
+
+        # If the model didn't call a tool, we're done
+        tool_calls = msg.tool_calls or []
         if not tool_calls:
             return
 
-        results = []
-        for block in tool_calls:
-            print(f"\033[33m> {block.name}\033[0m")
-            handler = TOOL_HANDLERS.get(block.name)
-            call_results = handler(**block.input) if handler else f"Error: Tool {block.name} not found"
-            print(str(call_results)[:200])
-            results.append({"type": "tool_result", "tool_use_id": block.id, "content": call_results})
+        # Execute each tool call; OpenAI 的入参是 JSON 字符串，不是现成的 dict
+        for call in tool_calls:
+            function = call.function
+            print(f"-------function: {function} ----------")
+            args = json.loads(function.arguments or "{}")
+            print("-------tool_calls_args:----------")
+            print(f"\033[33m$ {args}\033[0m")
+            handler = TOOL_HANDLERS.get(function.name)
+            call_results = (
+                handler(**args) if handler else f"Error: Tool {function.name} not found"
+            )
+            print("\n-------tool_calls_result:----------")
+            print(f" {str(call_results)[:200]} \n")
+            # Feed tool result back as role=tool, loop continues
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.id,
+                    "content": call_results,
+                }
+            )
 
-        messages.append({"role": "user", "content": results})
 
 if __name__ == "__main__":
     print("s02: Tool Use - four tools added to s01")
@@ -230,9 +272,13 @@ if __name__ == "__main__":
             continue
         if query.strip().lower() in ("q", "exit"):
             break
+
         history.append({"role": "user", "content": query})
         agent_loop(history)
-        for block in history[-1]["content"]:
-            if getattr(block, "type", None) == "text":
-                print(block.text)
+        # Print the model's final text response (OpenAI 下就是普通字符串)
+        final = history[-1].get("content")
+        if isinstance(final, str):
+            print("-------final----------\n")
+            print(f" {final} \n")
+            print("------------------\n")
         print()
