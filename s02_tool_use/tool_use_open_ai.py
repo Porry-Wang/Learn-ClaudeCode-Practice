@@ -40,7 +40,6 @@ ENVIRONMENT_PROMPT = (
 SYSTEM = (
     f"You are a coding agent at {WORKDIR}. Environment: {ENVIRONMENT_PROMPT}. "
     "All tool paths are relative to this root. Act, don't explain."
-
 )
 
 
@@ -88,12 +87,12 @@ def run_read(path: str, limit: int | None = None) -> str:
         return f"Error: {e}"
 
 
-def run_write(path: str, text: str) -> str:
+def run_write(path: str, content: str) -> str:
     try:
         file_path = safe_path(path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(text, encoding="utf-8")
-        return f"Wrote {len(text)} characters to {path}"
+        file_path.write_text(content, encoding="utf-8")
+        return f"Wrote {len(content)} characters to {path}"
     except Exception as e:
         return f"Error: {e}"
 
@@ -122,7 +121,7 @@ def run_glob(pattern: str) -> str:
                 if (WORKDIR / match).resolve().is_relative_to(WORKDIR)
             }
         )
-        return "\n".join(WORKDIR.glob(pattern))
+        return "\n".join(matches) if matches else "(no matches)"
     except Exception as e:
         return f"Error: {e}"
 
@@ -241,9 +240,15 @@ def agent_loop(messages: list):
             print("-------tool_calls_args:----------")
             print(f"\033[33m$ {args}\033[0m")
             handler = TOOL_HANDLERS.get(function.name)
-            call_results = (
-                handler(**args) if handler else f"Error: Tool {function.name} not found"
-            )
+            try:
+                call_results = (
+                    handler(**args)
+                    if handler
+                    else f"Error: Tool {function.name} not found"
+                )
+            except Exception as e:
+                # 工具异常必须隔离在单个 call 内，否则 tool_calls 缺配对会让下轮请求 400
+                call_results = f"Error: tool {function.name} failed: {e}"
             print("\n-------tool_calls_result:----------")
             print(f" {str(call_results)[:200]} \n")
             # Feed tool result back as role=tool, loop continues
